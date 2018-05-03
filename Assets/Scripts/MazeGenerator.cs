@@ -1,31 +1,36 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using Unity.Collections;
+using Unity.Jobs;
 using UnityEngine;
+using Random = System.Random;
 
 public class MazeGenerator : MonoBehaviour
 {
     [SerializeField] private int _width, _height;
     [SerializeField] private Cell _cellPrefab;
 
-    private List<Cell> _unvisitedCells;
-    private Cell[] _mazeCells;
+    public Dictionary<Vector2Int, CellData> UnvisitedCells, VisitedCells;
+    private long _memBefore, _memAfter;
 
     private void Start()
     {
-        _mazeCells = new Cell[_width * _height];
-        _unvisitedCells = new List<Cell>();
+        _memBefore = GC.GetTotalMemory(false);
+        UnvisitedCells = new Dictionary<Vector2Int, CellData>();
+        VisitedCells = new Dictionary<Vector2Int, CellData>();
 
         Vector2Int position = Vector2Int.zero;
-        for (int i = 0; i < _mazeCells.Length; i++)
+        for (int i = 0; i < _width * _height; i++)
         {
-            _mazeCells[i] = Instantiate(_cellPrefab.gameObject, new Vector3(position.x, 0, position.y),
-                    Quaternion.identity)
-                .GetComponent<Cell>();
-            _mazeCells[i].SetPosition(position);
-            _mazeCells[i].RefreshNeighbours(_mazeCells, _width, _height);
-            _mazeCells[i].MarkVisited(false);
+            UnvisitedCells.Add(position, new CellData(position));
+            UnvisitedCells[position].RefreshNeighbours(VisitedCells, _width, _height);
 
-            _unvisitedCells.Add(_mazeCells[i]);
+            Instantiate(_cellPrefab.gameObject, new Vector3(position.x, 0, position.y), Quaternion.identity, transform)
+                .GetComponent<Cell>().SetData(UnvisitedCells[position]);
+
 
             if (position.x == _width - 1)
             {
@@ -35,48 +40,50 @@ public class MazeGenerator : MonoBehaviour
             else position.x++;
         }
 
-        RecursiveCell(_mazeCells[0], null);
+        GenerateMaze(UnvisitedCells.Values.First());
     }
 
-    private void RecursiveCell(Cell start, Cell prev)
+    private void GenerateMaze(CellData start)
     {
         var curr = start;
-        curr.RefreshNeighbours(_mazeCells, _width, _height);
-        while (curr != null)
-        {
-            _unvisitedCells.Remove(curr);
-            curr.MarkVisited(true);
+        var prev = new CellData(new Vector2Int(-1, -1));
+        curr.RefreshNeighbours(VisitedCells, _width, _height);
+        Random rand = new Random();
 
-            if (prev != null)
+        while (UnvisitedCells.Count > 0)
+        {
+            UnvisitedCells.Remove(curr.Position);
+            VisitedCells.Add(curr.Position, curr);
+
+            curr.RefreshNeighbours(VisitedCells, _width, _height);
+
+            if (prev.Position != new Vector2Int(-1, -1))
             {
                 curr.RemoveWall(prev.Position);
+                curr.MarkDirty(true);
             }
 
             if (curr.HasUnvisitedNeighbour)
             {
-                var next = CellFromPosition(curr.GetRandomNeighbour());
-                next.RefreshNeighbours(_mazeCells, _width, _height);
+                var next = UnvisitedCells[curr.GetRandomNeighbour(rand)];
+                next.RefreshNeighbours(VisitedCells, _width, _height);
                 curr.RemoveWall(next.Position);
+                curr.MarkDirty(true);
                 prev = curr;
                 curr = next;
             }
-            else
+            else if (UnvisitedCells.Count > 0)
             {
-                if (_unvisitedCells.Count > 0)
-                {
-                    var unvisitedCell = _unvisitedCells[0];
-                    unvisitedCell.RefreshNeighbours(_mazeCells, _width, _height);
-                    prev = CellFromPosition(unvisitedCell.GetRandomVisitedNeighbour());
-                    prev.RemoveWall(unvisitedCell.Position);
-                    curr = unvisitedCell;
-                }
-                else break;
+                var unvisitedCell = UnvisitedCells.Values.First();
+                unvisitedCell.RefreshNeighbours(VisitedCells, _width, _height);
+                prev = VisitedCells[unvisitedCell.GetRandomVisitedNeighbour(rand)];
+                prev.RemoveWall(unvisitedCell.Position);
+                prev.MarkDirty(true);
+                curr = unvisitedCell;
             }
         }
-    }
 
-    private Cell CellFromPosition(Vector2Int pos)
-    {
-        return _mazeCells[pos.x + _width * pos.y];
+        _memAfter = GC.GetTotalMemory(false);
+        Debug.Log(_memAfter - _memBefore);
     }
 }

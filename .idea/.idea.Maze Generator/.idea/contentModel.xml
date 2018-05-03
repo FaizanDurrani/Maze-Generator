@@ -15,7 +15,7 @@
         </e>
         <e p="Scripts" t="Include">
           <e p="Cell.cs" t="Include" />
-          <e p="Direction.cs" t="Include" />
+          <e p="CellData.cs" t="Include" />
           <e p="MazeGenerator.cs" t="Include" />
         </e>
       </e>
